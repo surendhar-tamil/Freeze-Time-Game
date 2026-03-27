@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Time Freeze</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #07090f;
+    --grid: rgba(0, 200, 255, 0.04);
+    --player: #00eaff;
+    --player-glow: rgba(0, 234, 255, 0.6);
+    --enemy: #ff3c5f;
+    --enemy-glow: rgba(255, 60, 95, 0.5);
+    --freeze: rgba(100, 180, 255, 0.12);
+    --text: #c8f0ff;
+    --accent: #00eaff;
+    --score-bg: rgba(0, 234, 255, 0.07);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    overflow: hidden;
+    font-family: 'Share Tech Mono', monospace;
+    color: var(--text);
+  }
+
+  #canvas {
+    display: block;
+    position: absolute;
+    top: 0; left: 0;
+  }
+
+  /* HUD */
+  #hud {
+    position: absolute;
+    top: 18px; left: 22px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    pointer-events: none;
+  }
+
+  #score-label {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    color: var(--accent);
+    opacity: 0.6;
+    text-transform: uppercase;
+  }
+
+  #score-value {
+    font-family: 'Orbitron', sans-serif;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    text-shadow: 0 0 16px var(--player-glow);
+    line-height: 1;
+  }
+
+  #freeze-bar-wrap {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  #freeze-label {
+    font-size: 9px;
+    letter-spacing: 0.18em;
+    color: var(--accent);
+    opacity: 0.5;
+    text-transform: uppercase;
+  }
+
+  #freeze-bar-bg {
+    width: 90px;
+    height: 5px;
+    background: rgba(0, 234, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid rgba(0, 234, 255, 0.15);
+  }
+
+  #freeze-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #00c8ff, #00eaff);
+    border-radius: 3px;
+    transition: width 0.05s linear;
+    box-shadow: 0 0 6px var(--player-glow);
+  }
+
+  /* Freeze overlay */
+  #freeze-overlay {
+    position: absolute;
+    inset: 0;
+    background: var(--freeze);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    backdrop-filter: blur(0px);
+  }
+
+  #freeze-overlay.active {
+    opacity: 1;
+  }
+
+  #freeze-text {
+    position: absolute;
+    top: 18px;
+    right: 22px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.3em;
+    color: #a0d8ff;
+    text-transform: uppercase;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+    text-shadow: 0 0 12px rgba(160, 216, 255, 0.8);
+  }
+
+  #freeze-text.active { opacity: 1; }
+
+  /* Game Over screen */
+  #gameover {
+    display: none;
+    position: absolute;
+    inset: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    background: rgba(7, 9, 15, 0.92);
+    z-index: 10;
+  }
+
+  #gameover.show { display: flex; }
+
+  #go-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(36px, 6vw, 72px);
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    color: var(--enemy);
+    text-shadow: 0 0 30px rgba(255, 60, 95, 0.7), 0 0 80px rgba(255, 60, 95, 0.2);
+    animation: flicker 2s infinite;
+  }
+
+  @keyframes flicker {
+    0%,100%{opacity:1} 92%{opacity:1} 93%{opacity:0.6} 95%{opacity:1} 97%{opacity:0.7} 99%{opacity:1}
+  }
+
+  #go-sub {
+    margin-top: 14px;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    color: rgba(200, 240, 255, 0.4);
+    text-transform: uppercase;
+  }
+
+  #go-score {
+    margin-top: 28px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(18px, 3vw, 36px);
+    font-weight: 700;
+    color: var(--accent);
+    text-shadow: 0 0 16px var(--player-glow);
+    letter-spacing: 0.05em;
+  }
+
+  #go-best {
+    margin-top: 6px;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: rgba(0, 234, 255, 0.4);
+    text-transform: uppercase;
+  }
+
+  #restart-btn {
+    margin-top: 40px;
+    padding: 14px 44px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--bg);
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+    border-radius: 2px;
+    box-shadow: 0 0 24px var(--player-glow), 0 0 60px rgba(0, 234, 255, 0.15);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+
+  #restart-btn:hover {
+    transform: scale(1.04);
+    box-shadow: 0 0 36px var(--player-glow), 0 0 80px rgba(0, 234, 255, 0.25);
+  }
+
+  #restart-btn:active { transform: scale(0.97); }
+
+  /* Start screen */
+  #startscreen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    z-index: 10;
+    background: rgba(7, 9, 15, 0.95);
+  }
+
+  #start-title {
+    font-family: 'Orbitron', sans-serif;
+    font-size: clamp(40px, 7vw, 84px);
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    color: var(--accent);
+    text-shadow: 0 0 30px var(--player-glow), 0 0 80px rgba(0, 234, 255, 0.2);
+  }
+
+  #start-sub {
+    margin-top: 10px;
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    color: rgba(200,240,255,0.35);
+    text-transform: uppercase;
+  }
+
+  #controls {
+    margin-top: 38px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+
+  .ctrl-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    color: rgba(200, 240, 255, 0.55);
+  }
+
+  .key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    height: 24px;
+    padding: 0 8px;
+    background: rgba(0, 234, 255, 0.08);
+    border: 1px solid rgba(0, 234, 255, 0.25);
+    border-radius: 3px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.1em;
+  }
+
+  #start-btn {
+    margin-top: 44px;
+    padding: 14px 52px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--bg);
+    background: var(--accent);
+    border: none;
+    cursor: pointer;
+    border-radius: 2px;
+    box-shadow: 0 0 24px var(--player-glow);
+    transition: transform 0.1s, box-shadow 0.1s;
+  }
+
+  #start-btn:hover {
+    transform: scale(1.04);
+    box-shadow: 0 0 40px var(--player-glow);
+  }
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<!-- Freeze overlay -->
+<div id="freeze-overlay"></div>
+<div id="freeze-text">— TIME FROZEN —</div>
+
+<!-- HUD -->
+<div id="hud">
+  <div id="score-label">Score</div>
+  <div id="score-value">0</div>
+  <div id="freeze-bar-wrap">
+    <div id="freeze-label">Freeze</div>
+    <div id="freeze-bar-bg"><div id="freeze-bar"></div></div>
+  </div>
+</div>
+
+<!-- Start Screen -->
+<div id="startscreen">
+  <div id="start-title">TIME FREEZE</div>
+  <div id="start-sub">Survive. Freeze. Endure.</div>
+  <div id="controls">
+    <div class="ctrl-row"><span class="key">WASD</span> or <span class="key">↑↓←→</span> Move</div>
+    <div class="ctrl-row"><span class="key">SPACE</span> Freeze time</div>
+    <div class="ctrl-row"><span class="key">Avoid</span> the red enemies</div>
+  </div>
+  <button id="start-btn" onclick="startGame()">PLAY</button>
+</div>
+
+<!-- Game Over Screen -->
+<div id="gameover">
+  <div id="go-title">GAME OVER</div>
+  <div id="go-sub">You were caught</div>
+  <div id="go-score">Score: <span id="go-score-val">0</span></div>
+  <div id="go-best">Best: <span id="go-best-val">0</span></div>
+  <button id="restart-btn" onclick="startGame()">RESTART</button>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+let W, H;
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// --- State ---
+let state = 'start'; // 'start' | 'playing' | 'dead'
+let player, enemies, score, frozen, spawnTimer, scoreTimer;
+let bestScore = 0;
+const PLAYER_SIZE = 14;
+const ENEMY_SIZE = 12;
+const PLAYER_SPEED = 3.2;
+const ENEMY_SPEED = 1.4;
+const MAX_FREEZE = 4000; // ms
+let freezeLeft = MAX_FREEZE;
+let freezeRecharging = false;
+let lastTime = 0;
+
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; e.preventDefault(); });
+window.addEventListener('keyup',   e => { keys[e.code] = false; });
+
+function initGame() {
+  player = { x: W / 2, y: H / 2, vx: 0, vy: 0, trail: [] };
+  enemies = [];
+  score = 0;
+  frozen = false;
+  spawnTimer = 0;
+  scoreTimer = 0;
+  freezeLeft = MAX_FREEZE;
+  updateHUD();
+}
+
+function startGame() {
+  document.getElementById('startscreen').style.display = 'none';
+  document.getElementById('gameover').classList.remove('show');
+  state = 'playing';
+  initGame();
+  lastTime = performance.now();
+  requestAnimationFrame(loop);
+}
+
+// --- Enemies ---
+function spawnEnemy() {
+  const side = Math.floor(Math.random() * 4);
+  let x, y;
+  const pad = 20;
+  if (side === 0) { x = Math.random() * W; y = -pad; }
+  else if (side === 1) { x = W + pad; y = Math.random() * H; }
+  else if (side === 2) { x = Math.random() * W; y = H + pad; }
+  else { x = -pad; y = Math.random() * H; }
+  enemies.push({ x, y, trail: [] });
+}
+
+// --- Collision ---
+function circleHit(ax, ay, ar, bx, by, br) {
+  const dx = ax - bx, dy = ay - by;
+  return dx*dx + dy*dy < (ar + br) * (ar + br);
+}
+
+// --- HUD ---
+const scoreEl = document.getElementById('score-value');
+const freezeBarEl = document.getElementById('freeze-bar');
+const freezeOverlay = document.getElementById('freeze-overlay');
+const freezeTextEl = document.getElementById('freeze-text');
+
+function updateHUD() {
+  scoreEl.textContent = Math.floor(score);
+  const pct = (freezeLeft / MAX_FREEZE) * 100;
+  freezeBarEl.style.width = pct + '%';
+}
+
+// --- Draw helpers ---
+function drawGrid() {
+  ctx.save();
+  ctx.strokeStyle = frozen ? 'rgba(100,180,255,0.07)' : 'rgba(0,200,255,0.04)';
+  ctx.lineWidth = 1;
+  const sz = 48;
+  for (let x = 0; x < W; x += sz) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y < H; y += sz) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawPlayer() {
+  const p = player;
+  // Trail
+  for (let i = 0; i < p.trail.length; i++) {
+    const t = p.trail[i];
+    const alpha = (i / p.trail.length) * 0.18;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#00eaff';
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, PLAYER_SIZE * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  // Glow
+  const grd = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, PLAYER_SIZE * 3);
+  grd.addColorStop(0, 'rgba(0,234,255,0.22)');
+  grd.addColorStop(1, 'rgba(0,234,255,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, PLAYER_SIZE * 3, 0, Math.PI * 2);
+  ctx.fill();
+  // Core — diamond shape
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(Math.PI / 4);
+  ctx.shadowColor = '#00eaff';
+  ctx.shadowBlur = 18;
+  ctx.fillStyle = '#00eaff';
+  ctx.beginPath();
+  ctx.rect(-PLAYER_SIZE * 0.72, -PLAYER_SIZE * 0.72, PLAYER_SIZE * 1.44, PLAYER_SIZE * 1.44);
+  ctx.fill();
+  // Inner bright
+  ctx.fillStyle = '#e0faff';
+  ctx.beginPath();
+  ctx.rect(-PLAYER_SIZE * 0.28, -PLAYER_SIZE * 0.28, PLAYER_SIZE * 0.56, PLAYER_SIZE * 0.56);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawEnemy(e) {
+  // Trail
+  for (let i = 0; i < e.trail.length; i++) {
+    const t = e.trail[i];
+    const alpha = (i / e.trail.length) * 0.13;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ff3c5f';
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, ENEMY_SIZE * 0.7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  // Glow
+  const grd = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, ENEMY_SIZE * 2.5);
+  grd.addColorStop(0, 'rgba(255,60,95,0.2)');
+  grd.addColorStop(1, 'rgba(255,60,95,0)');
+  ctx.fillStyle = grd;
+  ctx.beginPath();
+  ctx.arc(e.x, e.y, ENEMY_SIZE * 2.5, 0, Math.PI * 2);
+  ctx.fill();
+  // Core triangle
+  ctx.save();
+  ctx.translate(e.x, e.y);
+  const angle = Math.atan2(player.y - e.y, player.x - e.x) + Math.PI / 2;
+  ctx.rotate(angle);
+  ctx.shadowColor = '#ff3c5f';
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = '#ff3c5f';
+  ctx.beginPath();
+  ctx.moveTo(0, -ENEMY_SIZE);
+  ctx.lineTo(ENEMY_SIZE * 0.85, ENEMY_SIZE * 0.7);
+  ctx.lineTo(-ENEMY_SIZE * 0.85, ENEMY_SIZE * 0.7);
+  ctx.closePath();
+  ctx.fill();
+  // Inner
+  ctx.fillStyle = '#ffa0b4';
+  ctx.beginPath();
+  ctx.moveTo(0, -ENEMY_SIZE * 0.45);
+  ctx.lineTo(ENEMY_SIZE * 0.35, ENEMY_SIZE * 0.3);
+  ctx.lineTo(-ENEMY_SIZE * 0.35, ENEMY_SIZE * 0.3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// --- Main loop ---
+function loop(ts) {
+  if (state !== 'playing') return;
+  const dt = Math.min(ts - lastTime, 50);
+  lastTime = ts;
+
+  // Input
+  const wantFreeze = keys['Space'];
+  const canFreeze = freezeLeft > 0;
+
+  if (wantFreeze && canFreeze) {
+    frozen = true;
+    freezeLeft = Math.max(0, freezeLeft - dt);
+    freezeRecharging = false;
+  } else {
+    frozen = false;
+    if (!wantFreeze) {
+      freezeRecharging = true;
+    }
+  }
+
+  if (freezeRecharging && !wantFreeze) {
+    freezeLeft = Math.min(MAX_FREEZE, freezeLeft + dt * 0.45);
+  }
+
+  // Freeze overlay
+  if (frozen) {
+    freezeOverlay.classList.add('active');
+    freezeTextEl.classList.add('active');
+  } else {
+    freezeOverlay.classList.remove('active');
+    freezeTextEl.classList.remove('active');
+  }
+
+  // Player movement
+  let dx = 0, dy = 0;
+  if (keys['KeyW'] || keys['ArrowUp'])    dy -= 1;
+  if (keys['KeyS'] || keys['ArrowDown'])  dy += 1;
+  if (keys['KeyA'] || keys['ArrowLeft'])  dx -= 1;
+  if (keys['KeyD'] || keys['ArrowRight']) dx += 1;
+  const len = Math.sqrt(dx*dx + dy*dy) || 1;
+  if (dx || dy) { dx /= len; dy /= len; }
+
+  // Smooth movement
+  player.vx += (dx * PLAYER_SPEED - player.vx) * 0.25;
+  player.vy += (dy * PLAYER_SPEED - player.vy) * 0.25;
+  player.x = Math.max(PLAYER_SIZE, Math.min(W - PLAYER_SIZE, player.x + player.vx));
+  player.y = Math.max(PLAYER_SIZE, Math.min(H - PLAYER_SIZE, player.y + player.vy));
+
+  // Player trail
+  player.trail.push({ x: player.x, y: player.y });
+  if (player.trail.length > 14) player.trail.shift();
+
+  // Spawn enemies
+  spawnTimer += dt;
+  const spawnInterval = Math.max(900, 2200 - score * 1.5);
+  if (spawnTimer > spawnInterval) {
+    spawnEnemy();
+    spawnTimer = 0;
+  }
+
+  // Enemy update
+  for (const e of enemies) {
+    if (!frozen) {
+      const ex = player.x - e.x, ey = player.y - e.y;
+      const d = Math.sqrt(ex*ex + ey*ey) || 1;
+      const speed = ENEMY_SPEED + score * 0.003;
+      e.x += (ex / d) * speed;
+      e.y += (ey / d) * speed;
+    }
+    e.trail.push({ x: e.x, y: e.y });
+    if (e.trail.length > 10) e.trail.shift();
+  }
+
+  // Score
+  scoreTimer += dt;
+  if (scoreTimer > 100) {
+    score += frozen ? 0.5 : 1;
+    scoreTimer = 0;
+  }
+
+  // Collision
+  for (const e of enemies) {
+    if (circleHit(player.x, player.y, PLAYER_SIZE * 0.75, e.x, e.y, ENEMY_SIZE * 0.8)) {
+      gameOver();
+      return;
+    }
+  }
+
+  updateHUD();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  // Background
+  ctx.fillStyle = '#07090f';
+  ctx.fillRect(0, 0, W, H);
+  drawGrid();
+  // Entities
+  for (const e of enemies) drawEnemy(e);
+  drawPlayer();
+}
+
+function gameOver() {
+  state = 'dead';
+  const s = Math.floor(score);
+  if (s > bestScore) bestScore = s;
+  document.getElementById('go-score-val').textContent = s;
+  document.getElementById('go-best-val').textContent = bestScore;
+  document.getElementById('gameover').classList.add('show');
+  freezeOverlay.classList.remove('active');
+  freezeTextEl.classList.remove('active');
+}
+</script>
+</body>
+</html>
